@@ -30,7 +30,7 @@ def log_ignore_modules(module_name: Iterable[str]):
 
 env = environ.Env()
 
-READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=True)
+READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)
 if READ_DOT_ENV_FILE:
     from merge_dotenvs_in_dotenv import DOTENV_FILE, DOTENV_FILES, merge
 
