@@ -1,0 +1,94 @@
+version: '3'
+
+volumes:
+  televi1_local_postgres_data: {}
+  televi1_local_postgres_data_backups: {}
+
+services:
+  django: &django
+    build:
+      context: .
+      dockerfile: ./compose/local/django/Dockerfile
+    image: televi1_local_django
+    container_name: televi1_local_django
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app:z
+    env_file:
+      - ./.envs/.django.dist
+      - ./.envs/.postgres.dist
+    ports:
+      - '8000:8000'
+    command: /start
+
+  telegrampoll:
+    <<: *django
+    image: televi1_local_telegrampoll
+    container_name: televi1_local_telegrampoll
+    depends_on:
+      - redis
+      - postgres
+    ports: [ ]
+    command: /start-telegrampoll
+
+  postgres:
+    build:
+      context: .
+      dockerfile: ./compose/production/postgres/Dockerfile
+    image: televi1_production_postgres
+    container_name: televi1_local_postgres
+    volumes:
+      - televi1_local_postgres_data:/var/lib/postgresql/data
+      - televi1_local_postgres_data_backups:/backups
+    env_file:
+      - ./.envs/.postgres.dist
+
+  docs:
+    image: televi1_local_docs
+    container_name: televi1_local_docs
+    build:
+      context: .
+      dockerfile: ./compose/local/docs/Dockerfile
+    env_file:
+      - ./.envs/.django.dist
+    volumes:
+      - ./docs:/docs:z
+      - ./config:/app/config:z
+      - ./televi1:/app/televi1:z
+    ports:
+      - '9000:9000'
+    command: /start-docs
+
+  redis:
+    image: redis:6
+    container_name: televi1_local_redis
+
+  celeryworker:
+    <<: *django
+    image: televi1_local_celeryworker
+    container_name: televi1_local_celeryworker
+    depends_on:
+      - redis
+      - postgres
+    ports: []
+    command: /start-celeryworker
+
+  celerybeat:
+    <<: *django
+    image: televi1_local_celerybeat
+    container_name: televi1_local_celerybeat
+    depends_on:
+      - redis
+      - postgres
+    ports: []
+    command: /start-celerybeat
+
+  flower:
+    <<: *django
+    image: televi1_local_flower
+    container_name: televi1_local_flower
+    ports:
+      - '5555:5555'
+    command: /start-flower
