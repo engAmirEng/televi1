@@ -3,9 +3,10 @@ import asyncio
 from aiogram import Bot
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
-from config import dispatchers
 from django.conf import settings
 from django.core.management import BaseCommand
+
+from ... import dispatchers
 
 
 class Command(BaseCommand):
