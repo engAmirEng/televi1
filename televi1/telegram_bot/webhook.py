@@ -1,4 +1,5 @@
 import json
+import secrets
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -17,7 +18,9 @@ def get_webhook_view(dp: Dispatcher):
         session = AiohttpSession(proxy=settings.TELEGRAM_PROXY)
         bot = Bot(settings.TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML, session=session)
 
-        if request.headers.get("x-telegram-bot-api-secret-token") != settings.TELEGRAM_WEBHOOK_SECRET:
+        if not secrets.compare_digest(
+            request.headers.get("x-telegram-bot-api-secret-token"), settings.TELEGRAM_WEBHOOK_SECRET
+        ):
             return HttpResponseForbidden()
         update = Update.model_validate(json.loads(request.body), context={"bot": bot})
         await dp.feed_webhook_update(bot=bot, update=update)
