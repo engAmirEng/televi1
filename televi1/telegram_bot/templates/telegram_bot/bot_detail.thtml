@@ -1,0 +1,6 @@
+{{ message_text }}
+{% load i18n %}
+@{{ bot.tusername }}
+
+
+{% translate "وضعیت" %}: {% if bot.is_active %}{% translate "فعال" %}✅{% else %}{% translate "غیر فعال" %}❌{% endif %}

@@ -1,29 +1,37 @@
 import json
 import secrets
 
-from aiogram import Bot, Dispatcher
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.enums import ParseMode
+from asgiref.sync import sync_to_async
+
+from aiogram import Dispatcher
 from aiogram.types import Update
-from django.conf import settings
 from django.http import HttpResponse, HttpResponseForbidden
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 
 from televi1.utils.decorators import require_http_methods
 
+from . import models
+
 
 def get_webhook_view(dp: Dispatcher):
     @require_http_methods(["POST"])
-    async def webhook_view(request):
-        session = AiohttpSession(proxy=settings.TELEGRAM_PROXY)
-        bot = Bot(settings.TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML, session=session)
+    async def webhook_view(request, url_specifier: str):
+        telegram_bot_obj = await sync_to_async(get_object_or_404)(
+            models.TelegramBot.objects.filter(url_specifier=url_specifier).select_related("added_by")
+        )
+        request_secret_token = request.headers.get("x-telegram-bot-api-secret-token")
 
-        if not secrets.compare_digest(
-            request.headers.get("x-telegram-bot-api-secret-token"), settings.TELEGRAM_WEBHOOK_SECRET
+        if request_secret_token is None or not secrets.compare_digest(
+            request_secret_token, telegram_bot_obj.secret_token
         ):
             return HttpResponseForbidden()
-        update = Update.model_validate(json.loads(request.body), context={"bot": bot})
-        await dp.feed_webhook_update(bot=bot, update=update)
+
+        bot = telegram_bot_obj.get_aiobot()
+
+        update = Update.model_validate(json.loads(request.body), context={})
+        kw = {"aiobot": bot, "bot_obj": telegram_bot_obj}
+        await dp.feed_webhook_update(bot=bot, update=update, **kw)
         return HttpResponse(status=status.HTTP_200_OK)
 
     return webhook_view
