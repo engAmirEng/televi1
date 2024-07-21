@@ -11,9 +11,13 @@ GRAPHIQL = env.bool("GRAPHIQL", False)
 
 # telegram_bot
 # ------------------------------------------------------------------------------
-TELEGRAM_BOT_TOKEN = env.str("TELEGRAM_BOT_TOKEN")
-TELEGRAM_WEBHOOK_URL = env.str("TELEGRAM_WEBHOOK_URL", "telegram-webhook/")
-TELEGRAM_WEBHOOK_SECRET = env.str("TELEGRAM_WEBHOOK_SECRET")
+TELEGRAM_WEBHOOK_URL_PREFIX = env.str("TELEGRAM_WEBHOOK_URL_PREFIX", "telegram-webhook")
 TELEGRAM_PROXY = env.url("TELEGRAM_PROXY", default=None)
 if TELEGRAM_PROXY:
     TELEGRAM_PROXY = environ.urlunparse(TELEGRAM_PROXY)
+
+TELEGRAM_MIDDLEWARE = [
+    "televi1.telegram_bot.t_middleware.AuthenticationMiddleware",
+    "televi1.telegram_bot.t_middleware.CommonMiddleware",
+]
+TELEGRAM_WEBHOOK_FLYING_DOMAINS = env.list("TELEGRAM_WEBHOOK_FLYING_DOMAINS")

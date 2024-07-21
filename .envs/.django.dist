@@ -19,10 +19,9 @@ PLUGGABLES=DEBUG_TOOLBAR,NO_PASS_VALIDATION,SERVE_STATICFILES
 #GRAPHIQL=
 # {int, default to 1}
 #MAX_LOG_FILE_COUNT=
-TELEGRAM_BOT_TOKEN=some-telegram-bot-token
-# {path, default to telegram-webhook/}
-#TELEGRAM_WEBHOOK_URL=
-TELEGRAM_WEBHOOK_SECRET=some-telegram-unsafe-token
+# {path, default to telegram-webhook}
+#TELEGRAM_WEBHOOK_URL_PREFIX=
+TELEGRAM_WEBHOOK_FLYING_DOMAINS=
 # {url, default no proxy is being used}
 #TELEGRAM_PROXY=
 
@@ -59,7 +58,7 @@ REDIS_URL=redis://redis:6379/0
 
 # Celery
 # ------------------------------------------------------------------------------
-CELERY_BROKER_URL=$REDIS_URL
+CELERY_BROKER_URL=redis://127.0.0.1:6379/0
 
 # Flower
 CELERY_FLOWER_USER=debug

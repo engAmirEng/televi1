@@ -15,7 +15,12 @@ env = environ.Env(**defaults)
 DEBUG = env.bool("DJANGO_DEBUG", False)
 SECRET_KEY = env.str("DJANGO_SECRET_KEY")
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "0.0.0.0", "127.0.0.1"])
-CSRF_TRUSTED_ORIGINS = [f"https://{i}" for i in ALLOWED_HOSTS]
+ALLOWED_HOSTS.extend([f".{i}" for i in env.list("TELEGRAM_WEBHOOK_FLYING_DOMAINS")])
+CSRF_TRUSTED_ORIGINS = env.list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    default=["http://localhost", "http://0.0.0.0", "http://127.0.0.1"],
+)
+
 INTERNAL_IPS = ["127.0.0.1", "10.0.2.2"]
 if env("USE_DOCKER") == "yes":
     import socket
@@ -93,6 +98,7 @@ CACHES = {
 # APPS
 # ------------------------------------------------------------------------------
 LOCAL_APPS = [
+    "televi1.core",
     "televi1.telegram_bot",
     "televi1.users",
 ]

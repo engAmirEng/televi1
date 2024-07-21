@@ -6,17 +6,16 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+import televi1.telegram_bot.urls
 from televi1.graphql.schema import schema
 from televi1.graphql.views import GraphQLView
-from televi1.telegram_bot import dispatchers
-from televi1.telegram_bot.webhook import get_webhook_view
 from televi1.utils.decorators import csrf_exempt
 
 urlpatterns = [
     # Django Admin, use {% url 'admin:index' %}
     path(settings.ADMIN_URL, admin.site.urls),
     # Telegram webhook handler
-    path(settings.TELEGRAM_WEBHOOK_URL, csrf_exempt(get_webhook_view(dispatchers.dp))),
+    path("", include(televi1.telegram_bot.urls)),
     # Graphql url
     path("graphql/", csrf_exempt(GraphQLView.as_view(graphiql=settings.GRAPHIQL, schema=schema))),
     # REST API base url

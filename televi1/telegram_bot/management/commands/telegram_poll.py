@@ -1,22 +1,24 @@
 import asyncio
 
-from aiogram import Bot
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.enums import ParseMode
-from django.conf import settings
 from django.core.management import BaseCommand
 
-from ... import dispatchers
+from ... import dispatchers, models
 
 
 class Command(BaseCommand):
     help = "Starts telegram bot polling"
 
     def handle(self, *args, **options):
-        session = AiohttpSession(proxy=settings.TELEGRAM_PROXY)
-        bot = Bot(settings.TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML, session=session)
+        first_10_telegram_bots = list(models.TelegramBot.objects.all()[:10])
 
         async def main() -> None:
-            await dispatchers.dp.start_polling(bot)
+            polling_tasks = []
+            for i in first_10_telegram_bots:
+                bot = i.get_aiobot()
+                kw = {"aiobot": bot, "bot_obj": i}
+                polling_task = dispatchers.dp.start_polling(bot, **kw)
+                polling_tasks.append(polling_task)
+
+            await asyncio.gather(*polling_tasks)
 
         asyncio.run(main())
