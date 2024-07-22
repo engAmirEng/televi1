@@ -24,6 +24,8 @@ PLUGGABLES=DEBUG_TOOLBAR,NO_PASS_VALIDATION,SERVE_STATICFILES
 TELEGRAM_WEBHOOK_FLYING_DOMAINS=
 # {url, default no proxy is being used}
 #TELEGRAM_PROXY=
+# {bool}
+TELEGRAM_PREFER_REPLY_TO_WEBHOOK=
 
 # Security
 # ------------------------------------------------------------------------------

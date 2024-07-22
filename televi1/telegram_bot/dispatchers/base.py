@@ -116,7 +116,7 @@ class SimpleButtonCallbackData(CallbackData, prefix="simplebutton"):
 @router.message(*MASTER_PATH_FILTERS, aiogram.F.text == CANCEL_R)
 async def master_command_start_handler(
     message: Message, user: User, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     await state.clear()
     have_any_bots = await models.TelegramBot.objects.filter(added_by=user).aexists()
     ikbuilder = InlineKeyboardBuilder()
@@ -130,14 +130,14 @@ async def master_command_start_handler(
         )
     text = render_to_string("telegram_bot/start.thtml")
 
-    await message.answer(text, reply_markup=ikbuilder.as_markup())
+    return message.answer(text, reply_markup=ikbuilder.as_markup())
 
 
 @router.message(*SUB_OWNER_PATH_FILTERS, CommandStart(magic=aiogram.F.args == None))
 @router.message(*SUB_OWNER_PATH_FILTERS, aiogram.F.text == CANCEL_R)
 async def sub_command_start_handler(
     message: Message, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot, *args, **kwargs
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     await state.clear()
     ikbuilder = InlineKeyboardBuilder()
     ikbuilder.button(
@@ -148,7 +148,7 @@ async def sub_command_start_handler(
     )
     text = render_to_string("telegram_bot/start.thtml")
 
-    await message.answer(text, reply_markup=ikbuilder.as_markup())
+    return message.answer(text, reply_markup=ikbuilder.as_markup())
 
 
 class ContentAction(str, Enum):
@@ -177,7 +177,7 @@ class BotCallbackData(CallbackData, prefix="content"):
 )
 async def content_list_handler(
     query: CallbackQuery, user: TelegramUser, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     contents_qs = models.TelegramUploader.objects.filter(created_by=user, tbot_id=user.tbot_id)
     ikbuilder = InlineKeyboardBuilder()
     async for i in contents_qs:
@@ -189,7 +189,7 @@ async def content_list_handler(
         )
     else:
         text = render_to_string("telegram_bot/content_list.thtml")
-    await query.message.edit_text(text, reply_markup=ikbuilder.as_markup())
+    return query.message.edit_text(text, reply_markup=ikbuilder.as_markup())
 
 
 @router.callback_query(*SUB_OWNER_PATH_FILTERS, ContentCallbackData.filter(aiogram.F.action == ContentAction.GET))
@@ -199,21 +199,21 @@ async def content_detail_handler(
     user: TelegramUser,
     aiobot: Bot,
     bot_obj: models.TelegramBot,
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     try:
         telegram_uploader_obj = await models.TelegramUploader.objects.filter(
             created_by=user, tbot_id=user.tbot_id
         ).aget(pk=callback_data.pk)
     except models.TelegramUploader.DoesNotExist:
-        await query.answer(_("پیدا نشد"))
-        return
+        return query.answer(_("پیدا نشد"))
+
     rkbuilder = InlineKeyboardBuilder()
     rkbuilder.button(
         text=_("کرفتن لینک"),
         callback_data=ContentCallbackData(pk=telegram_uploader_obj.pk, action=ContentAction.GET_LINK),
     )
     text = render_to_string("telegram_bot/content_detail.thtml")
-    await query.message.edit_text(text, reply_markup=rkbuilder.as_markup())
+    return query.message.edit_text(text, reply_markup=rkbuilder.as_markup())
 
 
 @router.callback_query(*SUB_OWNER_PATH_FILTERS, ContentCallbackData.filter(aiogram.F.action == ContentAction.GET_LINK))
@@ -223,14 +223,13 @@ async def content_get_link_handler(
     user: TelegramUser,
     aiobot: Bot,
     bot_obj: models.TelegramBot,
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     try:
         telegram_uploader_obj = await models.TelegramUploader.objects.filter(
             created_by=user, tbot_id=user.tbot_id
         ).aget(pk=callback_data.pk)
     except models.TelegramUploader.DoesNotExist:
-        await query.answer(_("پیدا نشد"))
-        return
+        return query.answer(_("پیدا نشد"))
 
     # TODO
     ulink = await telegram_uploader_obj.uploaderlinks.alast()
@@ -238,7 +237,7 @@ async def content_get_link_handler(
         ulink = await models.UploaderLink.objects.new(telegram_uploader_obj)
 
     text = get_dispatch_query(bot_username=bot_obj.tusername, pathname=QueryPathName.UPLOADER_LINK, key=ulink.queryid)
-    await query.message.reply(text)
+    return query.message.reply(text)
 
 
 @router.message(
@@ -253,7 +252,7 @@ async def uploader_link_handler(
     command_query: QueryDict,
     *args,
     **kwargs,
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     queryid = command_query.get("k")
     try:
         ulink: models.UploaderLink = (
@@ -284,18 +283,18 @@ class NewBotSG(StatesGroup):
 )
 async def new_bot_handler(
     query: CallbackQuery, user: User, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     await state.set_state(NewBotSG.token)
     rkbuilder = ReplyKeyboardBuilder()
     rkbuilder.button(text=str(CANCEL_R))
     text = render_to_string("telegram_bot/new_bot.thtml")
-    await query.message.answer(text, reply_markup=rkbuilder.as_markup())
+    return query.message.answer(text, reply_markup=rkbuilder.as_markup())
 
 
 @router.message(*MASTER_PATH_FILTERS, NewBotSG.token)
 async def new_bot_token_handler(
     message: Message, user: User, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     token = message.text
     rkbuilder = ReplyKeyboardBuilder()
     new_bot_obj, result = await models.TelegramBot.do_register(
@@ -318,7 +317,7 @@ async def new_bot_token_handler(
         text = render_to_string("telegram_bot/registering_bot/revoke_other.thtml")
     else:
         raise NotImplementedError
-    await message.reply(text, reply_markup=rkbuilder.as_markup())
+    return message.reply(text, reply_markup=rkbuilder.as_markup())
 
 
 @router.callback_query(
@@ -326,18 +325,18 @@ async def new_bot_token_handler(
 )
 async def bot_list_handler(
     query: CallbackQuery, user: User, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     tbots_qs = models.TelegramBot.objects.filter(added_by=user)
     if not tbots_qs.aexists():
         text = _("شما رباتی اضافه نکرده اید")
-        await query.message.edit_text(text=text)
-        return
+        return query.message.edit_text(text=text)
+
     ikbuilder = InlineKeyboardBuilder()
     async for i in tbots_qs:
         btn_text = i.title
         ikbuilder.button(text=btn_text, callback_data=BotCallbackData(pk=i.id, action=BotAction.GET))
     text = render_to_string("telegram_bot/bots_list.thtml")
-    await query.message.edit_text(text, reply_markup=ikbuilder.as_markup())
+    return query.message.edit_text(text, reply_markup=ikbuilder.as_markup())
 
 
 @router.callback_query(*MASTER_PATH_FILTERS, BotCallbackData.filter(aiogram.F.action == BotAction.POWER_OFF))
@@ -345,7 +344,7 @@ async def bot_list_handler(
 @router.callback_query(*MASTER_PATH_FILTERS, BotCallbackData.filter(aiogram.F.action == BotAction.GET))
 async def bot_detail_handler(
     query: CallbackQuery, callback_data: BotCallbackData, user: User, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     bot = await models.TelegramBot.objects.aget(pk=callback_data.pk, added_by=user)
     message_text = ""
     if callback_data.action in (BotAction.POWER_ON, BotAction.POWER_OFF):
@@ -368,7 +367,7 @@ async def bot_detail_handler(
         ),
     )
     text = render_to_string("telegram_bot/bot_detail.thtml", {"bot": bot, "message_text": message_text})
-    await query.message.edit_text(text, reply_markup=ikbuilder.as_markup())
+    return query.message.edit_text(text, reply_markup=ikbuilder.as_markup())
 
 
 class MustJoin(TypedDict):
@@ -387,34 +386,34 @@ class NewContentSG(StatesGroup):
 )
 async def new_content_handler(
     query: CallbackQuery, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     rkbuilder = ReplyKeyboardBuilder()
     rkbuilder.button(text=str(CANCEL_R))
     text = render_to_string("telegram_bot/new_content.thtml")
     await state.set_state(NewContentSG.messages)
-    await query.message.answer(text, reply_markup=rkbuilder.as_markup())
+    return query.message.answer(text, reply_markup=rkbuilder.as_markup())
 
 
 @router.message(*SUB_OWNER_PATH_FILTERS, NewContentSG.messages, aiogram.F.text == RESET_R)
 async def reset_content_message_handler(
     message: Message, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     await state.update_data(messages=None)
     rkbuilder = ReplyKeyboardBuilder()
     rkbuilder.button(text=str(CANCEL_R))
     text = render_to_string("telegram_bot/new_content.md")
-    await message.answer(text, reply_markup=rkbuilder.as_markup())
+    return message.answer(text, reply_markup=rkbuilder.as_markup())
 
 
 @router.message(*SUB_OWNER_PATH_FILTERS, NewContentSG.messages, aiogram.F.text == END_R)
 async def end_message_content_handler(
     message: Message, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     data = await state.get_data()
     messages_up_to_now = data.get("messages") or []
     if len(messages_up_to_now) == 0:
-        await aiobot.send_message(message.chat.id, "هنوز ک چیزی اضافه نکردی")
-        return
+        return message.answer("هنوز ک چیزی اضافه نکردی")
+
     rkbuilder = ReplyKeyboardBuilder()
     rkbuilder.button(
         text=_("انتخاب کانال"),
@@ -428,13 +427,13 @@ async def end_message_content_handler(
     rkbuilder.button(text=str(END_R))
     await state.set_state(NewContentSG.must_joins)
     text = render_to_string("telegram_bot/declare_must_joins.thtml")
-    await message.answer(text, reply_markup=rkbuilder.as_markup())
+    return message.answer(text, reply_markup=rkbuilder.as_markup())
 
 
 @router.message(*SUB_OWNER_PATH_FILTERS, NewContentSG.messages)
 async def new_content_message_handler(
     message: Message, user: User, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     data = await state.get_data()
     tmessage_ids_up_to_now = data.get("messages") or []
     telegram_message_obj = await models.TelegramMessage.objects.new_from_aio_for_uploader(
@@ -448,28 +447,28 @@ async def new_content_message_handler(
     rkbuilder.button(text=str(RESET_R))
     rkbuilder.button(text=str(END_R))
     text = render_to_string("telegram_bot/keep_adding_content.thtml", {"messages_count": messages_count})
-    await message.reply(text, reply_markup=rkbuilder.as_markup())
+    return message.reply(text, reply_markup=rkbuilder.as_markup())
 
 
 @router.message(*SUB_OWNER_PATH_FILTERS, NewContentSG.must_joins, aiogram.F.text == RESET_R)
 async def reset_content_must_join_handler(
     message: Message, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     await state.update_data(must_joins=None)
     rkbuilder = ReplyKeyboardBuilder()
     rkbuilder.button(text=str(CANCEL_R))
     rkbuilder.button(text=str(END_R))
     text = render_to_string("telegram_bot/declare_must_joins.md")
-    await message.answer(text, reply_markup=rkbuilder.as_markup())
+    return message.answer(text, reply_markup=rkbuilder.as_markup())
 
 
 @router.message(*SUB_OWNER_PATH_FILTERS, NewContentSG.must_joins, aiogram.F.text == END_R)
 async def end_content_must_join_handler(
     message: Message, user: User, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     await state.set_state(NewContentSG.name)
     text = _("یک نام وارد کنید:")
-    await message.answer(text)
+    return message.answer(text)
 
 
 @router.message(
@@ -477,7 +476,7 @@ async def end_content_must_join_handler(
 )
 async def new_content_must_joins_handler(
     message: Message, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     data = await state.get_data()
     must_joins_up_to_now: list[MustJoin] = data.get("must_joins") or []
     must_joins_up_to_now.append(
@@ -500,13 +499,13 @@ async def new_content_must_joins_handler(
     text = render_to_string(
         "telegram_bot/keep_adding_must_joins.thtml", {"must_joins_count": len(must_joins_up_to_now)}
     )
-    await message.reply(text, reply_markup=rkbuilder.as_markup())
+    return message.reply(text, reply_markup=rkbuilder.as_markup())
 
 
 @router.message(*SUB_OWNER_PATH_FILTERS, NewContentSG.name)
 async def new_content_name_handler(
     message: Message, user: User, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> None:
+) -> Optional[aiogram.methods.TelegramMethod]:
     await state.update_data(name=message.text)
     data = await state.get_data()
     tmessage_ids_up_to_now = data.get("messages") or []
@@ -520,4 +519,4 @@ async def new_content_name_handler(
     text = render_to_string(
         "telegram_bot/content_successfully_added.thtml", {"messages_count": len(tmessage_ids_up_to_now), "name": name}
     )
-    await message.answer(text)
+    return message.answer(text)
