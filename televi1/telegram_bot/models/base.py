@@ -194,7 +194,7 @@ class TelegramBot(TimeStampedModel, models.Model):
 
     @staticmethod
     def new_aiobot(token: str) -> aiogram.Bot:
-        session = AiohttpSession(proxy=settings.TELEGRAM_PROXY)
+        session = settings.TELEGRAM_SESSION
         return aiogram.Bot(token, default=DefaultBotProperties(parse_mode=ParseMode.HTML), session=session)
 
 
