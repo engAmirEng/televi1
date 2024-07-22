@@ -187,6 +187,7 @@ class TelegramBot(TimeStampedModel, models.Model):
         # TODO
         return "quiet-mangos-shop"
 
+        r = RandomWord()
         part_count = random.randint(1, 4)
         sub_domain_name = "-".join(r.random_words(amount=part_count, word_max_length=10))
         return sub_domain_name
