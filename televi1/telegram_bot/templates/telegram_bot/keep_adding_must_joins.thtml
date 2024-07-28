@@ -1,2 +1,3 @@
+{{ message_text }}
 چت بعدی را انتخاب کنید
 تعداد تا الآن: {{ must_joins_count }}

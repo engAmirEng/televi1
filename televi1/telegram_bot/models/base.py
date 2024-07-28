@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import string
 from enum import Enum
+from typing import Literal
 
 from asgiref.sync import sync_to_async
 from wonderwords import RandomWord
@@ -12,17 +13,18 @@ import aiogram.exceptions
 import aiogram.utils.token
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.enums import ParseMode
+from aiogram.enums import ChatMemberStatus, ParseMode
 from django.conf import settings
 from django.db import models
-from django.db.models import UniqueConstraint
+from django.db.models import CheckConstraint, Q, UniqueConstraint
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from televi1.users.models import User, UserManager
 from televi1.utils.models import TimeStampedModel
 
-from .. import tasks
+from .. import happening_logger, tasks
+from .telegram_mappings import TelegramChat
 
 
 class TelegramBotManager(models.Manager):
@@ -185,7 +187,7 @@ class TelegramBot(TimeStampedModel, models.Model):
     @staticmethod
     def generate_sub_domain_name():
         # TODO
-        return "quiet-mangos-shop"
+        return "tel"
 
         r = RandomWord()
         part_count = random.randint(1, 4)
@@ -214,3 +216,102 @@ class TelegramUser(User, models.Model):
 
     class Meta:
         constraints = [UniqueConstraint(fields=("user_tid", "tbot"), name="unique_tuser_tbot")]
+
+
+class TelegramChatMemberManager(models.Manager):
+    async def from_aio_sync(
+        self,
+        tchatmember: (
+            aiogram.types.ChatMemberOwner
+            | aiogram.types.ChatMemberAdministrator
+            | aiogram.types.ChatMemberMember
+            | aiogram.types.ChatMemberRestricted
+            | aiogram.types.ChatMemberLeft
+            | aiogram.types.ChatMemberBanned
+        ),
+        tchat_obj: TelegramChat,
+        tbot_or_user_obj: TelegramUser | TelegramBot,
+    ) -> tuple[Literal["created", "updated", "not_changed"], TelegramChatMember]:
+        if isinstance(tbot_or_user_obj, TelegramUser):
+            tuser_obj = tbot_or_user_obj
+            tbot_obj = None
+            obj = await self.filter(tchat=tchat_obj, tuser=tuser_obj).afirst()
+        elif isinstance(tbot_or_user_obj, TelegramBot):
+            tuser_obj = None
+            tbot_obj = tbot_or_user_obj
+            obj = await self.filter(tchat=tchat_obj, tbot=tbot_obj).afirst()
+        else:
+            raise NotImplementedError(f"{type(tbot_or_user_obj)=} which is not expected.")
+        if obj is not None:
+            if obj.status != tchatmember.status:
+                status = "updated"
+            else:
+                status = "not_changed"
+        else:
+            obj = self.model()
+            obj.tchat = tchat_obj
+            obj.tuser = tuser_obj
+            obj.tbot = tbot_obj
+            obj.status = tchatmember.status
+            await obj.asave()
+            status = "created"
+
+        return status, obj
+
+
+class TelegramChatMember(TimeStampedModel, models.Model):
+    """
+    Defines the status of a user/bot in a chat
+    """
+
+    class Status(models.TextChoices):
+        CREATOR = ChatMemberStatus.CREATOR
+        ADMINISTRATOR = ChatMemberStatus.ADMINISTRATOR
+        MEMBER = ChatMemberStatus.MEMBER
+        RESTRICTED = ChatMemberStatus.RESTRICTED
+        LEFT = ChatMemberStatus.LEFT
+        KICKED = ChatMemberStatus.KICKED
+
+    tchat = models.ForeignKey("TelegramChat", on_delete=models.CASCADE, related_name="+")
+
+    tbot = models.ForeignKey("TelegramBot", on_delete=models.CASCADE, related_name="+", null=True, blank=True)
+    tuser = models.ForeignKey("TelegramUser", on_delete=models.CASCADE, related_name="+", null=True, blank=True)
+
+    status = models.CharField(max_length=31, choices=Status.choices)
+
+    objects = TelegramChatMemberManager()
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(
+                fields=("tbot", "tchat"), condition=Q(tbot__isnull=False), name="unique_tbot_chat_condition"
+            ),
+            UniqueConstraint(
+                fields=("tuser", "tchat"), condition=Q(tuser__isnull=False), name="unique_tuser_chat_condition"
+            ),
+            CheckConstraint(
+                check=Q(Q(tbot__isnull=True, tuser__isnull=False) | Q(tbot__isnull=False, tuser__isnull=True)),
+                name="one_of_tbot_or_tuser",
+            ),
+        ]
+
+    @classmethod
+    async def handle_aio_get_chat_exception(
+        cls, exception: aiogram.exceptions.TelegramForbiddenError, chat_tid: int, tbot_obj: TelegramBot
+    ) -> tuple[None, tuple[None, Status]] | tuple[TelegramChatMember, tuple[Status, Status]]:
+        perv_status = None
+        if exception.message == "Forbidden: bot was kicked from the channel chat":
+            status = cls.Status.KICKED
+        else:
+            raise NotImplementedError(f"TelegramForbiddenError with {exception.message=}")
+        try:
+            obj = await cls.objects.aget(tbot=tbot_obj, tchat__tid=chat_tid)
+        except cls.DoesNotExist:
+            obj = None
+            if status in (cls.Status.KICKED, cls.Status.LEFT, cls.Status.RESTRICTED):
+                happening_logger.critical(f"{chat_tid=} is at {status=} for {str(tbot_obj)} but is not present in db.")
+        if obj:
+            perv_status = obj.status
+            obj.status = status
+            await obj.asave()
+        return obj, (perv_status, status)

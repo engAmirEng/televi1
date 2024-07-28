@@ -2,18 +2,15 @@ from __future__ import annotations
 
 import random
 import string
-from typing import TYPE_CHECKING
 
-from django.contrib.postgres.fields import ArrayField
+from polymorphic.models import PolymorphicModel
+
 from django.db import models, transaction
-
-if TYPE_CHECKING:
-    from televi1.telegram_bot.dispatchers.base import MustJoin
 
 from televi1.users.models import User
 from televi1.utils.models import TimeStampedModel
 
-from . import TelegramMessage, TelegramUser
+from . import TelegramChat, TelegramMessage, TelegramUser
 
 
 class TelegramUploaderMessage(TimeStampedModel, models.Model):
@@ -24,12 +21,14 @@ class TelegramUploaderMessage(TimeStampedModel, models.Model):
 
 class TelegramUploaderManager(models.Manager):
     @transaction.atomic
-    def from_wizard(self, name: str, tmessage_ids: list[int], must_joins: list[MustJoin], created_by: TelegramUser):
+    def from_wizard(
+        self, name: str, tmessage_ids: list[int], must_join_tchat_ids: list[int], created_by: TelegramUser
+    ):
         tmessage_qs = TelegramMessage.objects.filter(id__in=tmessage_ids)
+        must_join_tchat_qs = TelegramChat.objects.filter(id__in=must_join_tchat_ids)
         obj = self.model()
         obj.name = name
 
-        obj.must_join_chat_ids = [i["chat_id"] for i in must_joins]
         obj.created_by = created_by
         obj.tbot_id = created_by.tbot_id
         obj.save()
@@ -41,7 +40,41 @@ class TelegramUploaderManager(models.Manager):
             tum_obj.uploader = obj
             tum_obj.order = i
             tum_obj.save()
+        for i, must_join_tchat_id in enumerate(must_join_tchat_ids):
+            mustjoin_tchat_obj = [i for i in must_join_tchat_qs if i.id == must_join_tchat_id][0]
+            condition_obj = JoinChatUploaderCondition()
+            condition_obj.tchat = mustjoin_tchat_obj
+            condition_obj.save()
+            uploader_condition = UploaderUploaderCondition()
+            uploader_condition.order = i
+            uploader_condition.condition = condition_obj
+            uploader_condition.uploader = obj
+            uploader_condition.save()
+
         return obj
+
+
+class UploaderCondition(TimeStampedModel, PolymorphicModel, models.Model):
+    pass
+
+
+class JoinChatUploaderCondition(UploaderCondition):
+    tchat = models.ForeignKey("TelegramChat", on_delete=models.CASCADE, related_name="+")
+
+
+class UploaderUploaderCondition(TimeStampedModel, models.Model):
+    order = models.IntegerField()
+
+    condition = models.ForeignKey(
+        UploaderCondition,
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    uploader = models.ForeignKey(
+        "TelegramUploader",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
 
 
 class TelegramUploader(TimeStampedModel, models.Model):
@@ -53,7 +86,12 @@ class TelegramUploader(TimeStampedModel, models.Model):
         through_fields=("uploader", "message"),
         related_name="telegramuploaders",
     )
-    must_join_chat_ids = ArrayField(base_field=models.BigIntegerField(), size=10)
+    conditions = models.ManyToManyField(
+        "UploaderCondition",
+        through=UploaderUploaderCondition,
+        through_fields=("uploader", "condition"),
+        related_name="telegramuploaders",
+    )
     created_by = models.ForeignKey(User, related_name="telegramuploaders_createdby", on_delete=models.CASCADE)
 
     objects = TelegramUploaderManager()

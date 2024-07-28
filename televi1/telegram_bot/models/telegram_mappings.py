@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from asgiref.sync import async_to_sync, sync_to_async
 from polymorphic.models import PolymorphicModel
 
@@ -12,7 +14,57 @@ from django.db.models import CheckConstraint, Q, UniqueConstraint
 from televi1.users.models import User
 from televi1.utils.models import TimeStampedModel
 
-from . import TelegramBot
+if TYPE_CHECKING:
+    from .base import TelegramBot
+
+
+class TelegramChatManager(models.Manager):
+    @transaction.atomic
+    def new_from_aio_for_uploader(
+        self, tchat: aiogram.types.Chat, bot_chatmember: aiogram.types.ChatMember, tbot_obj: TelegramBot
+    ) -> [bool, TelegramChat]:
+        from .base import TelegramChatMember
+
+        is_created = False
+        obj = self.filter(tid=tchat.id).first()
+        if obj is None:
+            is_created = True
+            obj = async_to_sync(self.model.from_aio)(tchat=tchat)
+        status, chat_member_obj = async_to_sync(TelegramChatMember.objects.from_aio_sync)(
+            tchatmember=bot_chatmember, tchat_obj=obj, tbot_or_user_obj=tbot_obj
+        )
+        return is_created, obj
+
+
+class TelegramChat(TimeStampedModel, models.Model):
+    class Type(models.TextChoices):
+        PRIVATE = "private"
+        GROUP = "group"
+        SUPERGROUP = "supergroup"
+        CHANNEL = "channel"
+
+    tid = models.BigIntegerField(unique=True)
+    type = models.CharField(max_length=10, choices=Type.choices)
+    title = models.CharField(max_length=255, null=True, blank=True)
+    username = models.CharField(max_length=255, null=True, blank=True)
+    first_name = models.CharField(max_length=255, null=True, blank=True)
+    last_name = models.CharField(max_length=255, null=True, blank=True)
+    is_forum = models.BooleanField(null=True, blank=True)
+
+    objects = TelegramChatManager()
+
+    @classmethod
+    async def from_aio(cls, tchat: aiogram.types.Chat) -> TelegramChat:
+        obj = cls()
+        obj.tid = tchat.id
+        obj.type = tchat.type
+        obj.title = tchat.title
+        obj.username = tchat.username
+        obj.first_name = tchat.first_name
+        obj.last_name = tchat.last_name
+        obj.is_forum = tchat.is_forum
+        await obj.asave()
+        return obj
 
 
 class TelegramMessageEntity(TimeStampedModel, models.Model):
@@ -40,6 +92,7 @@ class TelegramMessageEntity(TimeStampedModel, models.Model):
     type = models.CharField(max_length=31, choices=Type.choices)
     offset = models.IntegerField()
     length = models.IntegerField()
+    url = models.URLField(null=True, blank=False)
 
     telegram_message_text = models.ForeignKey(
         "TelegramMessage", on_delete=models.CASCADE, related_name="text_entities", null=True, blank=True
@@ -69,11 +122,12 @@ class TelegramMessageEntity(TimeStampedModel, models.Model):
         obj.type = tmessage_entity.type
         obj.offset = tmessage_entity.offset
         obj.length = tmessage_entity.length
+        obj.url = tmessage_entity.url
         await obj.asave()
         return obj
 
     def to_aio(self):
-        return aiogram.types.MessageEntity(type=self.type, offset=self.offset, length=self.length)
+        return aiogram.types.MessageEntity(type=self.type, offset=self.offset, length=self.length, url=self.url)
 
 
 class TelegramMessageQuerySet(models.QuerySet):
@@ -187,13 +241,20 @@ class TelegramMessage(TimeStampedModel, models.Model):
                 "caption_entities": [i.to_aio() async for i in self.caption_entities.all()],
                 "parse_mode": None,
             }
+        elif self.content_type == self.ContentType.TEXT:
+            method_name = aiogram.Bot.send_message.__name__
+            kw = {
+                "text": self.text,
+                "entities": [i.to_aio() async for i in self.text_entities.all()],
+                "parse_mode": None,
+            }
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"{self.content_type=} is not handled.")
         return method_name, kw
 
 
 class TelegramFile(TimeStampedModel, PolymorphicModel, models.Model):
-    bot = models.ForeignKey(TelegramBot, on_delete=models.CASCADE, related_name="telegram_files")
+    bot = models.ForeignKey("TelegramBot", on_delete=models.CASCADE, related_name="telegram_files")
     file_id = models.CharField(max_length=255)
     file_unique_id = models.CharField(max_length=255)
     file_size = models.BigIntegerField(null=True, blank=True)

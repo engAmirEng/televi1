@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from enum import Enum
-from typing import Optional, TypedDict, Union
+from typing import Optional, Union
 
 from asgiref.sync import sync_to_async
 
@@ -20,7 +20,7 @@ from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy as __
 
 from ...users.models import User
-from .. import models
+from .. import happening_logger, models
 from ..models import TelegramUser
 
 router = Router(name=__name__)
@@ -148,6 +148,22 @@ async def sub_command_start_handler(
     )
     text = render_to_string("telegram_bot/start.thtml")
 
+    # path = "/mntm/v/Media/Videos/Captures/Understanding AI's Impact on Job Markets-0000.png"
+    # # async with aiofiles.open(path, "rb") as f:
+    # #     while chunk := await f.read(64 * 1024 ):
+    # #         return chunk
+    # await message.answer_document(document=aiogram.types.FSInputFile(path), caption="ggg")
+
+    async def run_awaitable(awaitable_instance):
+        result = await awaitable_instance
+        return result
+
+    # a = [
+    #     asyncio.create_task(run_awaitable(message.answer(text, reply_markup=ikbuilder.as_markup()))),
+    #     asyncio.create_task(run_awaitable(message.answer(text, reply_markup=ikbuilder.as_markup()))),
+    # ]
+    # await asyncio.gather(*a)
+
     return message.answer(text, reply_markup=ikbuilder.as_markup())
 
 
@@ -250,6 +266,7 @@ async def uploader_link_handler(
     bot_obj: models.TelegramBot,
     command,
     command_query: QueryDict,
+    user: User,
     *args,
     **kwargs,
 ) -> Optional[aiogram.methods.TelegramMethod]:
@@ -259,10 +276,10 @@ async def uploader_link_handler(
             await models.UploaderLink.objects.filter(queryid=queryid).select_related("uploader").aget()
         )
     except models.UploaderLink.DoesNotExist:
-        logging.error(f"{str(queryid)} not found")
+        happening_logger.error(f"{str(user)} requested UploaderLink {queryid=} not found")
         return
     if ulink.uploader.tbot_id != bot_obj.id:
-        logging.error(f"{str(queryid)} is not for {str(bot_obj)}")
+        happening_logger.error(f"{str(user)} requested {queryid=} which is not for {str(bot_obj)}")
         return
     messages_qs = ulink.uploader.messages.all().select_related_all_entities()
     msq_tasks = []
@@ -370,11 +387,6 @@ async def bot_detail_handler(
     return query.message.edit_text(text, reply_markup=ikbuilder.as_markup())
 
 
-class MustJoin(TypedDict):
-    chat_id: int
-    is_channel: bool
-
-
 class NewContentSG(StatesGroup):
     name = State()
     messages = State()
@@ -425,6 +437,7 @@ async def end_message_content_handler(
     )
     rkbuilder.button(text=str(CANCEL_R))
     rkbuilder.button(text=str(END_R))
+    rkbuilder.adjust(2, 2)
     await state.set_state(NewContentSG.must_joins)
     text = render_to_string("telegram_bot/declare_must_joins.thtml")
     return message.answer(text, reply_markup=rkbuilder.as_markup())
@@ -456,38 +469,6 @@ async def reset_content_must_join_handler(
 ) -> Optional[aiogram.methods.TelegramMethod]:
     await state.update_data(must_joins=None)
     rkbuilder = ReplyKeyboardBuilder()
-    rkbuilder.button(text=str(CANCEL_R))
-    rkbuilder.button(text=str(END_R))
-    text = render_to_string("telegram_bot/declare_must_joins.md")
-    return message.answer(text, reply_markup=rkbuilder.as_markup())
-
-
-@router.message(*SUB_OWNER_PATH_FILTERS, NewContentSG.must_joins, aiogram.F.text == END_R)
-async def end_content_must_join_handler(
-    message: Message, user: User, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> Optional[aiogram.methods.TelegramMethod]:
-    await state.set_state(NewContentSG.name)
-    text = _("یک نام وارد کنید:")
-    return message.answer(text)
-
-
-@router.message(
-    *SUB_OWNER_PATH_FILTERS, NewContentSG.must_joins, aiogram.F.content_type == aiogram.enums.ContentType.CHAT_SHARED
-)
-async def new_content_must_joins_handler(
-    message: Message, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
-) -> Optional[aiogram.methods.TelegramMethod]:
-    data = await state.get_data()
-    must_joins_up_to_now: list[MustJoin] = data.get("must_joins") or []
-    must_joins_up_to_now.append(
-        {"chat_id": message.chat_shared.chat_id, "is_channel": message.chat_shared.request_id == 58008}
-    )
-    await state.update_data(must_joins=must_joins_up_to_now)
-
-    rkbuilder = ReplyKeyboardBuilder()
-    rkbuilder.button(text=str(CANCEL_R))
-    rkbuilder.button(text=str(RESET_R))
-    rkbuilder.button(text=str(END_R))
     rkbuilder.button(
         text=_("انتخاب کانال"),
         request_chat=KeyboardButtonRequestChat(request_id=58008, chat_is_channel=True, bot_is_member=True),
@@ -496,8 +477,70 @@ async def new_content_must_joins_handler(
         text=_("انتخاب گروه"),
         request_chat=KeyboardButtonRequestChat(request_id=8008, chat_is_channel=False, bot_is_member=True),
     )
+    rkbuilder.button(text=str(CANCEL_R))
+    rkbuilder.button(text=str(END_R))
+    rkbuilder.adjust(2, 2)
+    text = render_to_string("telegram_bot/declare_must_joins.thtml")
+    return message.answer(text, reply_markup=rkbuilder.as_markup())
+
+
+@router.message(*SUB_OWNER_PATH_FILTERS, NewContentSG.must_joins, aiogram.F.text == END_R)
+async def end_content_must_join_handler(
+    message: Message, user: User, state: FSMContext, aiobot: Bot, bot_obj: models.TelegramBot
+) -> Optional[aiogram.methods.TelegramMethod]:
+    await state.set_state(NewContentSG.name)
+
+    rkbuilder = ReplyKeyboardBuilder()
+    rkbuilder.button(text=str(CANCEL_R))
+    text = _("یک نام وارد کنید:")
+    return message.answer(text, reply_markup=rkbuilder.as_markup())
+
+
+@router.message(
+    *SUB_OWNER_PATH_FILTERS, NewContentSG.must_joins, aiogram.F.content_type == aiogram.enums.ContentType.CHAT_SHARED
+)
+async def new_content_must_joins_handler(
+    message: Message, state: FSMContext, aiobot: Bot, user: User, bot_obj: models.TelegramBot
+) -> Optional[aiogram.methods.TelegramMethod]:
+    data = await state.get_data()
+    must_joins_up_to_now: list[int] = data.get("must_joins") or []
+    try:
+        shared_chat = await aiobot.get_chat(chat_id=message.chat_shared.chat_id)
+    except (aiogram.exceptions.TelegramForbiddenError, aiogram.exceptions.TelegramBadRequest) as e:
+        if isinstance(e, aiogram.exceptions.TelegramForbiddenError):
+            tchat_member_obj, (perv_status, status) = await models.TelegramChatMember.handle_aio_get_chat_exception(
+                exception=e, chat_tid=message.chat_shared.chat_id, tbot_obj=bot_obj
+            )
+        chat_type_name = _("گروه") if message.chat_shared.request_id == 8008 else _("کانال")
+        message_text = _("ربات در این {0} عضو نیست.").format(chat_type_name)
+    except Exception as e:
+        return
+    else:
+        bot_chatmember = await aiobot.get_chat_member(chat_id=message.chat_shared.chat_id, user_id=bot_obj.tid)
+
+        is_created, telegram_chat_obj = await sync_to_async(models.TelegramChat.objects.new_from_aio_for_uploader)(
+            tchat=shared_chat, bot_chatmember=bot_chatmember, tbot_obj=bot_obj
+        )
+        must_joins_up_to_now.append(telegram_chat_obj.id)
+        await state.update_data(must_joins=must_joins_up_to_now)
+        message_text = _("با موفقیت اضافه شد")
+
+    rkbuilder = ReplyKeyboardBuilder()
+    rkbuilder.button(
+        text=_("انتخاب کانال"),
+        request_chat=KeyboardButtonRequestChat(request_id=58008, chat_is_channel=True, bot_is_member=True),
+    )
+    rkbuilder.button(
+        text=_("انتخاب گروه"),
+        request_chat=KeyboardButtonRequestChat(request_id=8008, chat_is_channel=False, bot_is_member=True),
+    )
+    rkbuilder.button(text=str(CANCEL_R))
+    rkbuilder.button(text=str(RESET_R))
+    rkbuilder.button(text=str(END_R))
+    rkbuilder.adjust(2, 3, repeat=True)
     text = render_to_string(
-        "telegram_bot/keep_adding_must_joins.thtml", {"must_joins_count": len(must_joins_up_to_now)}
+        "telegram_bot/keep_adding_must_joins.thtml",
+        {"must_joins_count": len(must_joins_up_to_now), "message_text": message_text},
     )
     return message.reply(text, reply_markup=rkbuilder.as_markup())
 
@@ -509,14 +552,27 @@ async def new_content_name_handler(
     await state.update_data(name=message.text)
     data = await state.get_data()
     tmessage_ids_up_to_now = data.get("messages") or []
-    must_joins_up_to_now: list[MustJoin] = data.get("must_joins") or []
+    must_join_tchat_ids_up_to_now: list[int] = data.get("must_joins") or []
     name = data["name"]
     uploader_obj = await sync_to_async(models.TelegramUploader.objects.from_wizard)(
-        name=name, tmessage_ids=tmessage_ids_up_to_now, must_joins=must_joins_up_to_now, created_by=user
+        name=name,
+        tmessage_ids=tmessage_ids_up_to_now,
+        must_join_tchat_ids=must_join_tchat_ids_up_to_now,
+        created_by=user,
     )
     await state.clear()
 
-    text = render_to_string(
-        "telegram_bot/content_successfully_added.thtml", {"messages_count": len(tmessage_ids_up_to_now), "name": name}
+    ulink = await models.UploaderLink.objects.new(uploader_obj)
+
+    ulink_url = get_dispatch_query(
+        bot_username=bot_obj.tusername, pathname=QueryPathName.UPLOADER_LINK, key=ulink.queryid
     )
-    return message.answer(text)
+
+    ikbuilder = InlineKeyboardBuilder()
+    ikbuilder.button(text=_("ویرایش"), callback_data=ContentCallbackData(pk=uploader_obj.pk, action=ContentAction.GET))
+
+    text = render_to_string(
+        "telegram_bot/content_successfully_added.thtml",
+        {"messages_count": len(tmessage_ids_up_to_now), "name": name, "link_url": ulink_url},
+    )
+    return message.answer(text, reply_markup=ikbuilder.as_markup())
